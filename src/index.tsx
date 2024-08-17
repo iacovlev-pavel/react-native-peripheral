@@ -17,10 +17,8 @@ const nativeEvents = NativePeripheral
   : null;
 
 export enum Permission {
-  READABLE = 1,
-  READ_ENCRYPTED = 2,
-  WRITEABLE = 4,
-  WRITE_ENCRYPTED = 8,
+  READABLE = 0x01,
+  WRITEABLE = 0x10,
 }
 
 export enum Property {
@@ -62,9 +60,19 @@ export interface AdvertiseOptions {
 }
 
 export interface WriteEvent {
-  serviceUuid: string;
-  characteristicUuid: string;
+  service: string;
+  characteristic: string;
   value: string;
+  device: string;
+  requestId: number;
+}
+
+export interface ReadEvent {
+  service: string;
+  characteristic: string;
+  offset: number;
+  device: string;
+  requestId: number;
 }
 
 export interface SubscriptionEvent {
@@ -85,8 +93,17 @@ class Peripheral extends EventEmitter {
     this.id = nextId++;
     this._listeners = [
       nativeEvents!.addListener('onWrite', ({ id, ...args }) => {
+        console.log("onWrite", id, args);
+        console.log(this.destroyed, id, this.id)
         if (!this.destroyed && id === this.id) {
           this.emit('write', args as WriteEvent);
+        }
+      }),
+      nativeEvents!.addListener('onRead', ({ id, ...args }) => {
+        console.log("onRead", id, args);
+        console.log(this.destroyed, id, this.id)
+        if (!this.destroyed && id === this.id) {
+          this.emit('read', args as ReadEvent);
         }
       }),
       nativeEvents!.addListener('onSubscribe', ({ id, ...args }) => {
@@ -133,11 +150,11 @@ class Peripheral extends EventEmitter {
       manufacturerData: manufacturerData?.toString('base64'),
     };
     const stringifiedServices =
-      options && servicesOrOpts
+      servicesOrOpts
         ? Object.fromEntries(
             Object.entries(servicesOrOpts).map(([key, value]) => [
               key,
-              value.toString('base64'),
+              value ? value.toString('base64') : value,
             ])
           )
         : null;
@@ -150,6 +167,23 @@ class Peripheral extends EventEmitter {
 
   async stopAdvertising() {
     return NativePeripheral.stopAdvertising(this.id);
+  }
+
+  async sendResponse(
+    deviceAddress: string,
+    requestId: number,
+    status: number,
+    offset: number,
+    value: Buffer
+  ) {
+    return NativePeripheral.sendResponse(
+      this.id,
+      deviceAddress,
+      requestId,
+      status,
+      offset,
+      value.toString('base64')
+    );
   }
 
   async addService(uuid: string, primary: boolean) {
@@ -176,6 +210,7 @@ class Peripheral extends EventEmitter {
     characteristicUuid: string,
     value: Buffer
   ) {
+    console.log(`Update value ${value}`)
     return NativePeripheral.updateValue(
       this.id,
       serviceUuid,
@@ -190,6 +225,7 @@ class Peripheral extends EventEmitter {
     value: Buffer,
     isIndication: boolean = false
   ) {
+    console.log(`Notification ${value}`)
     return NativePeripheral.sendNotification(
       this.id,
       serviceUuid,

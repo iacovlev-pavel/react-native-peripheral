@@ -5,14 +5,11 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.Arguments
-import com.facebook.react.bridge.ReadableArray
-import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.module.annotations.ReactModule
 import com.facebook.react.modules.core.DeviceEventManagerModule
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
@@ -27,19 +24,12 @@ import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
-import android.bluetooth.le.AdvertisingSet
-import android.bluetooth.le.AdvertisingSetCallback
-import android.bluetooth.le.AdvertisingSetParameters
 import android.bluetooth.le.BluetoothLeAdvertiser
-import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
-import android.os.Handler
-import android.provider.SyncStateContract
 import android.util.Log
 import android.util.Base64
 import android.os.ParcelUuid
+import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 
 import java.util.UUID
@@ -64,6 +54,9 @@ class ReactNativeMultiBlePeripheralModule(reactContext: ReactApplicationContext)
   private var registeredDevices: MutableMap<Int, MutableSet<BluetoothDevice>> = LinkedHashMap()
   private var services: MutableMap<Int, MutableMap<String, BluetoothGattService>> = LinkedHashMap()
   private var advertiseCallbacks: MutableMap<Int, AdvertiseCallback> = LinkedHashMap()
+  private var writeRequestValues: MutableMap<Int, MutableMap<String, ByteArray>> = LinkedHashMap()
+  private var writeRequestCharacteristics: MutableMap<Int, MutableMap<String, BluetoothGattCharacteristic>> = LinkedHashMap()
+  private var characteristicValues: MutableMap<Int, MutableMap<String, ByteArray>> = LinkedHashMap()
 
   init {
     bluetoothManager = ContextCompat.getSystemService(
@@ -78,6 +71,7 @@ class ReactNativeMultiBlePeripheralModule(reactContext: ReactApplicationContext)
       .emit(name, params)
   }
 
+  @SuppressLint("MissingPermission")
   @ReactMethod
   fun setDeviceName(name: String, promise: Promise) {
     if (bluetoothAdapter == null) {
@@ -108,6 +102,9 @@ class ReactNativeMultiBlePeripheralModule(reactContext: ReactApplicationContext)
     bluetoothLeAdvertisers[id] = bluetoothLeAdvertiser
 
     services[id] = LinkedHashMap()
+    writeRequestValues[id] = LinkedHashMap()
+    writeRequestCharacteristics[id] = LinkedHashMap()
+    characteristicValues[id] = LinkedHashMap()
 
     promise.resolve(null)
   }
@@ -175,6 +172,7 @@ class ReactNativeMultiBlePeripheralModule(reactContext: ReactApplicationContext)
       )
       characteristic.addDescriptor(descriptor)
     }
+    Log.i(NAME, "addCharacteristic")
     service.addCharacteristic(characteristic)
     promise.resolve(null)
   }
@@ -202,10 +200,13 @@ class ReactNativeMultiBlePeripheralModule(reactContext: ReactApplicationContext)
       promise.reject("error", "Not found characteristic")
       return
     }
-    characteristic.value = Base64.decode(value, Base64.DEFAULT)
+    val characteristicValues = characteristicValues[id]!!
+    characteristicValues[characteristicUUID] = Base64.decode(value, Base64.DEFAULT)
     promise.resolve(null)
   }
 
+  @SuppressLint("MissingPermission")
+  @RequiresApi(Build.VERSION_CODES.TIRAMISU)
   @ReactMethod
   fun sendNotification(
     id: Int,
@@ -235,18 +236,19 @@ class ReactNativeMultiBlePeripheralModule(reactContext: ReactApplicationContext)
       promise.reject("error", "Not found characteristic")
       return
     }
-    var value = Base64.decode(value, Base64.DEFAULT)
-    characteristic.value = value
+    val value = Base64.decode(value, Base64.DEFAULT)
     for (device in registeredDevices) {
       val response = bluetoothGattServer.notifyCharacteristicChanged(
         device,
         characteristic,
-        confirm
+        confirm,
+        value
       )
     }
     promise.resolve(null)
   }
 
+  @SuppressLint("MissingPermission")
   @ReactMethod
   fun startAdvertising(
     id: Int,
@@ -273,16 +275,24 @@ class ReactNativeMultiBlePeripheralModule(reactContext: ReactApplicationContext)
 
     val bluetoothGattServer = bluetoothManager.openGattServer(
       getReactApplicationContext(),
+      @SuppressLint("MissingPermission")
       object : BluetoothGattServerCallback() {
+
+        override fun onServiceAdded (status: Int,
+                                     service: BluetoothGattService) {
+          super.onServiceAdded(status, service);
+          Log.i(NAME, "onServiceAdded: $service")
+        }
 
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
           super.onConnectionStateChange(device, status, newState)
-          var registeredDevices = registeredDevices[id]
-          if (registeredDevices != null) {
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
-              Log.i(NAME, "BluetoothDevice CONNECTED: $device")
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-              Log.i(NAME, "BluetoothDevice DISCONNECTED: $device")
+          Log.i(NAME, "BluetoothDevice: $device $status $newState")
+          if (newState == BluetoothProfile.STATE_CONNECTED) {
+            Log.i(NAME, "BluetoothDevice CONNECTED: $device")
+          } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+            Log.i(NAME, "BluetoothDevice DISCONNECTED: $device")
+            var registeredDevices = registeredDevices[id]
+            if (registeredDevices != null) {
               registeredDevices.remove(device)
             }
           }
@@ -294,19 +304,67 @@ class ReactNativeMultiBlePeripheralModule(reactContext: ReactApplicationContext)
           offset: Int,
           characteristic: BluetoothGattCharacteristic
         ) {
+          Log.w(NAME, "onCharacteristicReadRequest")
           super.onCharacteristicReadRequest(device, requestId, offset, characteristic)
+          val params = Arguments.createMap()
+          var characteristicUUID = characteristic.uuid.toString()
+          params.putInt("id", id)
+          params.putString("device", device.address)
+          params.putInt("offset", offset)
+          params.putInt("requestId", requestId)
+          params.putString("service", characteristic.service.uuid.toString())
+          params.putString("characteristic", characteristicUUID)
+          sendEvent("onRead", params)
+
           var gattServer = bluetoothGattServers[id]
           if (gattServer != null) {
-            if (offset > characteristic.value.size) {
+            val characteristicValues = characteristicValues[id]!!
+            val value = characteristicValues[characteristicUUID]
+            if (value == null) {
+              gattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null);
+              return
+            }
+
+            val maxLength = value.size - 1
+            if (offset > maxLength) {
               gattServer.sendResponse(device, requestId, BluetoothGatt.GATT_INVALID_OFFSET, offset, null)
             } else {
-              gattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, characteristic.value)
+              var lastIndex = offset + 22;
+              if (lastIndex > maxLength) {
+                lastIndex = maxLength
+              }
+              gattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value.sliceArray(offset..lastIndex))
             }
           }
         }
 
         override fun onNotificationSent(device: BluetoothDevice, status: Int) {
           super.onNotificationSent(device, status)
+        }
+
+        override fun onExecuteWrite(device: BluetoothDevice, requestId: Int, execute: Boolean) {
+          Log.w(NAME, "onCharacteristicWriteRequest $requestId")
+          super.onExecuteWrite(device, requestId, execute)
+
+
+          val writeRequestCharacteristics = writeRequestCharacteristics[id]!!
+          val characteristic = writeRequestCharacteristics[device.address]!!
+
+          val params = Arguments.createMap()
+          params.putInt("id", id)
+          params.putString("device", device.address)
+          params.putInt("requestId", requestId)
+          params.putString("service", characteristic.service.uuid.toString())
+          params.putString("characteristic", characteristic.uuid.toString())
+
+          val writeRequestValues = writeRequestValues[id]!!
+          val value = writeRequestValues[device.address]
+          params.putString("value", Base64.encodeToString(value, Base64.NO_WRAP))
+          writeRequestValues.remove(device.address)
+          writeRequestCharacteristics.remove(device.address)
+          sendEvent("onWrite", params)
+
+          bluetoothGattServers[id]?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
         }
 
         override fun onCharacteristicWriteRequest(
@@ -318,17 +376,35 @@ class ReactNativeMultiBlePeripheralModule(reactContext: ReactApplicationContext)
           offset: Int,
           value: ByteArray
         ) {
+          Log.w(NAME, "onCharacteristicWriteRequest $requestId $preparedWrite $responseNeeded")
           super.onCharacteristicWriteRequest(device, requestId, characteristic, preparedWrite, responseNeeded, offset, value)
-          var gattServer = bluetoothGattServers[id]
+
+          val writeRequestCharacteristic = writeRequestCharacteristics[id]!!
+          writeRequestCharacteristic[device.address] = characteristic
+          val writeRequestValues = writeRequestValues[id]!!
+          if (writeRequestValues[device.address] == null) {
+            writeRequestValues[device.address] = value
+          } else {
+            writeRequestValues[device.address] = writeRequestValues[device.address]!! + value
+          }
+
+          val gattServer = bluetoothGattServers[id]
           if (gattServer != null) {
             val params = Arguments.createMap()
-            params.putString("id", id.toString())
+            params.putInt("id", id)
             params.putString("device", device.address)
+            params.putInt("requestId", requestId)
             params.putString("service", characteristic.service.uuid.toString())
             params.putString("characteristic", characteristic.uuid.toString())
-            params.putInt("offset", offset)
-            params.putString("value", Base64.encodeToString(value, Base64.NO_WRAP))
-            sendEvent("onWrite", params)
+            if (preparedWrite) {
+              params.putInt("offset", offset)
+              params.putString("value", Base64.encodeToString(value, Base64.NO_WRAP))
+              sendEvent("onWriteRequest", params)
+            } else {
+              params.putString("value", Base64.encodeToString(value, Base64.NO_WRAP))
+              sendEvent("onWrite", params)
+              writeRequestValues.remove(device.address)
+            }
             if (responseNeeded) {
               gattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
             }
@@ -417,6 +493,7 @@ class ReactNativeMultiBlePeripheralModule(reactContext: ReactApplicationContext)
     bluetoothGattServers[id] = bluetoothGattServer
 
     for (service in services[id]!!.values) {
+      Log.w(NAME, "addService $service")
       bluetoothGattServer.addService(service)
     }
 
@@ -450,8 +527,9 @@ class ReactNativeMultiBlePeripheralModule(reactContext: ReactApplicationContext)
         if (service.value is String) {
           val data = Base64.decode(service.value as String, Base64.DEFAULT)
           advertiseDataBuilder.addServiceData(ParcelUuid(uuid), data)
+        } else {
+          advertiseDataBuilder.addServiceUuid(ParcelUuid(uuid))
         }
-        advertiseDataBuilder.addServiceUuid(ParcelUuid(uuid))
       }
     }
 
@@ -469,9 +547,11 @@ class ReactNativeMultiBlePeripheralModule(reactContext: ReactApplicationContext)
     }
 
     val advertiseData = advertiseDataBuilder.build()
+    Log.w(NAME, "test event");
     bluetoothLeAdvertiser.startAdvertising(advertiseSettings, advertiseData, advertiseCallbacks[id])
   }
 
+  @SuppressLint("MissingPermission")
   @ReactMethod
   fun stopAdvertising(
     id: Int,
@@ -491,6 +571,7 @@ class ReactNativeMultiBlePeripheralModule(reactContext: ReactApplicationContext)
     promise.resolve(null)
   }
 
+  @SuppressLint("MissingPermission")
   @ReactMethod
   fun destroyPeripheral(
     id: Int,
@@ -506,6 +587,8 @@ class ReactNativeMultiBlePeripheralModule(reactContext: ReactApplicationContext)
     bluetoothLeAdvertisers.remove(id)
     advertiseCallbacks.remove(id)
     registeredDevices.remove(id)
+    writeRequestCharacteristics.remove(id)
+    writeRequestValues.remove(id)
     promise.resolve(null)
   }
 
