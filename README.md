@@ -1,11 +1,14 @@
-# react-native-multi-ble-peripheral
+# react-native-peripheral2
 
-React Native Multi BLE Peripheral Manager
+Fork from https://github.com/mybigday/react-native-multi-ble-peripheral
+
+React Native BLE Peripheral Manager
 
 ## Installation
 
 ```sh
 npm install react-native-multi-ble-peripheral
+yarn add react-native-multi-ble-peripheral
 ```
 
 ### iOS
@@ -25,25 +28,6 @@ Add these lines in `Info.plist`
 <uses-permission android:name="android.permission.BLUETOOTH" />
 <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
 <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-```
-
-- Do this patch if you build on SDK 33+
-
-```diff
-diff --git a/android/src/main/java/com/fugood/reactnativemultibleperipheral/ReactNativeMultiBlePeripheralModule.kt b/android/src/main/java/com/fugood/reactnativemultibleperipheral/ReactNativeMultiBlePeripheralModule.kt
-index 2e763af..746c0c7 100644
---- a/android/src/main/java/com/fugood/reactnativemultibleperipheral/ReactNativeMultiBlePeripheralModule.kt
-+++ b/android/src/main/java/com/fugood/reactnativemultibleperipheral/ReactNativeMultiBlePeripheralModule.kt
-@@ -241,7 +241,8 @@ class ReactNativeMultiBlePeripheralModule(reactContext: ReactApplicationContext)
-       val response = bluetoothGattServer.notifyCharacteristicChanged(
-         device,
-         characteristic,
--        confirm
-+        confirm,
-+        value
-       )
-       Log.d(NAME, "Notify ${device.name} (${device.address}) response = $response")
-     }
 ```
 
 #### Request permission
@@ -75,16 +59,41 @@ const peripheral = new Peripheral();
 
 // We need wait peripheral manager ready before any operation.
 peripheral.on('ready', async () => {
-  await peripheral.addService('1234', true);
+  await peripheral.addService('uuid', true);
   await peripheral.addCharacteristic(
-    '1234',
-    'ABCD',
+    'uuid',
+    'uuid2',
     Property.READ | Property.WRITE,
     Permission.READABLE | Permission.WRITEABLE
   );
-  await peripheral.updateValue('1234', 'ABCD', Buffer.from('Hello World!'));
+  await peripheral.updateValue('uuid', 'uuid2', Buffer.from('Hello World!'));
   await peripheral.startAdvertising();
+  // or advertising with service
+  await peripheral.startAdvertising({uuid: null});
+  // or advertising with service data
+  await peripheral.startAdvertising({uuid: 'data'});
 });
+
+peripheral.on(
+  'write',
+  async ({
+    requestId,
+    device,
+    deviceName,
+    characteristic,
+    service,
+    value,
+  }) => {
+    const data = base64.decode(value);
+    console.log('Peripheral write', {
+      requestId,
+      device,
+      deviceName,
+      characteristic,
+      service,
+      data,
+    });
+  })
 ```
 
 ## Contributing
@@ -94,18 +103,3 @@ See the [contributing guide](CONTRIBUTING.md) to learn how to contribute to the 
 ## License
 
 MIT
-
----
-
-Made with [create-react-native-library](https://github.com/callstack/react-native-builder-bob)
-
----
-
-<p align="center">
-  <a href="https://bricks.tools">
-    <img width="90px" src="https://avatars.githubusercontent.com/u/17320237?s=200&v=4">
-  </a>
-  <p align="center">
-    Built and maintained by <a href="https://bricks.tools">BRICKS</a>.
-  </p>
-</p>

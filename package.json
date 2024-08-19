@@ -1,7 +1,7 @@
 {
-  "name": "react-native-multi-ble-peripheral",
-  "version": "0.1.5",
-  "description": "test",
+  "name": "react-native-peripheral2",
+  "version": "0.1.6",
+  "description": "Mobile act as peripheral for React Native",
   "main": "lib/commonjs/index",
   "module": "lib/module/index",
   "types": "lib/typescript/index.d.ts",
@@ -38,16 +38,16 @@
   },
   "keywords": [
     "react-native",
-    "ios",
-    "android"
+    "bluetooth",
+    "peripheral"
   ],
-  "repository": "https://github.com/mybigday/react-native-multi-ble-peripheral",
-  "author": "Hans <admin@itsrv.tw> (https://github.com/mybigday)",
+  "repository": "https://github.com/eoh-public/react-native-peripheral",
+  "author": "Bang EoH <bang@eoh.io> (https://github.com/eoh-public)",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/mybigday/react-native-multi-ble-peripheral/issues"
+    "url": "https://github.com/eoh-public/react-native-peripheral"
   },
-  "homepage": "https://github.com/mybigday/react-native-multi-ble-peripheral#readme",
+  "homepage": "https://github.com/eoh-public/react-native-peripheral#readme",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"
   },
