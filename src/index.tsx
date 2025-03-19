@@ -93,15 +93,11 @@ class Peripheral extends EventEmitter {
     this.id = nextId++;
     this._listeners = [
       nativeEvents!.addListener('onWrite', ({ id, ...args }) => {
-        console.log("onWrite", id, args);
-        console.log(this.destroyed, id, this.id)
         if (!this.destroyed && id === this.id) {
           this.emit('write', args as WriteEvent);
         }
       }),
       nativeEvents!.addListener('onRead', ({ id, ...args }) => {
-        console.log("onRead", id, args);
-        console.log(this.destroyed, id, this.id)
         if (!this.destroyed && id === this.id) {
           this.emit('read', args as ReadEvent);
         }
@@ -210,7 +206,6 @@ class Peripheral extends EventEmitter {
     characteristicUuid: string,
     value: Buffer
   ) {
-    console.log(`Update value ${value}`)
     return NativePeripheral.updateValue(
       this.id,
       serviceUuid,
@@ -225,7 +220,6 @@ class Peripheral extends EventEmitter {
     value: Buffer,
     isIndication: boolean = false
   ) {
-    console.log(`Notification ${value}`)
     return NativePeripheral.sendNotification(
       this.id,
       serviceUuid,
