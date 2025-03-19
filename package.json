@@ -1,5 +1,5 @@
 {
-  "name": "react-native-peripheral2",
+  "name": "react-native-peripheral",
   "version": "0.2.0",
   "description": "Mobile act as peripheral for React Native",
   "main": "lib/commonjs/index",
