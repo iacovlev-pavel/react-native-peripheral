@@ -1,4 +1,4 @@
-# react-native-peripheral2
+# react-native-peripheral
 
 Fork from https://github.com/mybigday/react-native-multi-ble-peripheral
 
